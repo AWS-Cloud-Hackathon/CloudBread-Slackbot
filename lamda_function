@@ -1,0 +1,53 @@
+import json
+import os
+from urllib import request, parse
+
+def lambda_handler(event, context):
+    # 이벤트 데이터 로깅
+    print(f"Received event: {event}")
+    
+    # 데이터 입력 이벤트 처리
+    if 'Records' in event:
+        for record in event['Records']:
+            # 데이터가 새로 입력되었을 때만 처리 (DynamoDB의 INSERT 이벤트를 가정)
+            if record['eventName'] == 'INSERT':
+                # DynamoDB 스트림에서 새로운 이미지 데이터 가져오기
+                new_data = record['dynamodb']['NewImage']
+                
+                # 차량 번호를 추출 (차량 번호가 'vehicle_number' 필드에 있다고 가정)
+                vehicle_number = new_data.get('vehicle_number', {}).get('S', 'Unknown')
+                
+                # Slack으로 전송할 메시지 작성
+                response_text = f"경고: 범죄 관련 차량이 발견되었습니다. 차량 번호: {vehicle_number}"
+                channel_id = os.environ.get('SLACK_CHANNEL_ID')  # Slack 채널 ID는 환경 변수에서 가져옴
+                post_message_to_slack(response_text, channel_id, os.environ.get('BOT_TOKEN'))
+    
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Event processed')
+    }
+
+def post_message_to_slack(response_text, channel_id, bot_token):
+    url = "https://slack.com/api/chat.postMessage"
+    headers = {
+        'Authorization': f"Bearer {bot_token}",
+        'Content-Type': 'application/json; charset=utf-8'
+    }
+    payload = {
+        'channel': channel_id,
+        'text': response_text
+    }
+    
+    # JSON 데이터를 문자열로 변환
+    data = json.dumps(payload).encode('utf-8')
+    
+    req = request.Request(url, data=data, headers=headers)
+    try:
+        response = request.urlopen(req)
+        response_data = response.read().decode('utf-8')
+        print(f"Response from Slack: {response_data}")
+        response_json = json.loads(response_data)
+        if not response_json.get('ok'):
+            print(f"Slack API returned an error: {response_json}")
+    except Exception as e:
+        print(f"Failed to send message to Slack: {e}")
